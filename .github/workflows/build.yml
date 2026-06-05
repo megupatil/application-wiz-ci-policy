@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -50,8 +51,12 @@ jobs:
 
           echo "Wiz credentials found"
 
+      #
+      # Run scan but don't stop workflow immediately
+      #
       - name: Run Wiz Container Scan
         id: wizscan
+        continue-on-error: true
         env:
           WIZ_CLIENT_ID: ${{ secrets.WIZ_CLIENT_ID }}
           WIZ_CLIENT_SECRET: ${{ secrets.WIZ_CLIENT_SECRET }}
@@ -61,18 +66,81 @@ jobs:
             --stdout json \
             --json-output-file wiz-results.json
 
-      - name: Display Scan Results
+      - name: Install jq
         if: always()
         run: |
-          echo "===== Wiz Scan Results ====="
-          cat wiz-results.json || true
+          sudo apt-get update
+          sudo apt-get install -y jq
 
-      - name: Upload Scan Results
+      - name: Generate GitHub Summary
+        if: always()
+        run: |
+
+          echo "# Wiz CI Policy Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## Vulnerabilities Triggering Policy Failure" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "| CVE | Package | Severity | CVSS | EPSS Probability | EPSS Percentile | Fix Version |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|---------|----------|------|------------------|-----------------|-------------|" >> $GITHUB_STEP_SUMMARY
+
+          jq -r '
+            .result.osPackages[]
+            | .name as $package
+            | .vulnerabilities[]
+            | select(.failedPolicyMatches != null)
+            | [
+                .name,
+                $package,
+                .severity,
+                (.score|tostring),
+                (.epssProbability|tostring),
+                (.epssPercentile|tostring),
+                (.fixedVersion // "N/A")
+              ]
+            | @tsv
+          ' wiz-results.json | while IFS=$'\t' read -r cve package severity cvss epss_prob epss_pct fixver
+          do
+            echo "| $cve | $package | $severity | $cvss | $epss_prob | $epss_pct | $fixver |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Scan Verdict" >> $GITHUB_STEP_SUMMARY
+
+          verdict=$(jq -r '.status.verdict' wiz-results.json)
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`$verdict\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Wiz Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wiz-scan-results
+          name: wiz-results
           path: wiz-results.json
+
+      #
+      # Fail the workflow if Wiz failed the policy
+      #
+      - name: Enforce Policy Result
+        if: always()
+        run: |
+
+          verdict=$(jq -r '.status.verdict' wiz-results.json)
+
+          echo "Policy Verdict: $verdict"
+
+          if [ "$verdict" = "FAILED_BY_POLICY" ]; then
+            echo "Build blocked by Wiz policy"
+            exit 1
+          fi
+
+          echo "Policy passed"
 
       - name: Completed
         if: success()
