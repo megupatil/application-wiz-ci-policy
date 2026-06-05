@@ -22,7 +22,7 @@ jobs:
 
       - name: Verify Docker Image
         run: |
-          echo "Listing local images..."
+          echo "Docker images available:"
           docker images
 
       - name: Download Wiz CLI
@@ -32,10 +32,9 @@ jobs:
 
       - name: Verify Wiz CLI
         run: |
-          ls -lah
           ./wizcli version || true
 
-      - name: Verify Wiz Credentials
+      - name: Verify Wiz Secrets
         env:
           WIZ_CLIENT_ID: ${{ secrets.WIZ_CLIENT_ID }}
           WIZ_CLIENT_SECRET: ${{ secrets.WIZ_CLIENT_SECRET }}
@@ -59,8 +58,8 @@ jobs:
         run: |
           ./wizcli scan container-image vuln-app:${{ github.sha }} \
             --policies "meg-ci-policy" \
-            --ignore-rules "meg-epss-ignore"
+            --stdout json
 
-      - name: Scan Completed
+      - name: Completed
         run: |
-          echo "Container scan completed successfully"
+          echo "Build and Wiz scan completed"
