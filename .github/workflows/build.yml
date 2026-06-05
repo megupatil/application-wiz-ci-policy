@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -32,9 +31,9 @@ jobs:
 
       - name: Verify Wiz CLI
         run: |
-          ./wizcli version || true
+          ./wizcli version
 
-      - name: Verify Wiz Secrets
+      - name: Verify Wiz Credentials
         env:
           WIZ_CLIENT_ID: ${{ secrets.WIZ_CLIENT_ID }}
           WIZ_CLIENT_SECRET: ${{ secrets.WIZ_CLIENT_SECRET }}
@@ -52,14 +51,30 @@ jobs:
           echo "Wiz credentials found"
 
       - name: Run Wiz Container Scan
+        id: wizscan
         env:
           WIZ_CLIENT_ID: ${{ secrets.WIZ_CLIENT_ID }}
           WIZ_CLIENT_SECRET: ${{ secrets.WIZ_CLIENT_SECRET }}
         run: |
           ./wizcli scan container-image vuln-app:${{ github.sha }} \
             --policies "meg-ci-policy" \
-            --stdout json
+            --stdout json \
+            --json-output-file wiz-results.json
+
+      - name: Display Scan Results
+        if: always()
+        run: |
+          echo "===== Wiz Scan Results ====="
+          cat wiz-results.json || true
+
+      - name: Upload Scan Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wiz-scan-results
+          path: wiz-results.json
 
       - name: Completed
+        if: success()
         run: |
-          echo "Build and Wiz scan completed"
+          echo "Build and Wiz scan completed successfully"
