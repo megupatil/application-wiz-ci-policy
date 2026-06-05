@@ -7,19 +7,24 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Build Docker Image
+        run: |
+          docker build -t vuln-app:${{ github.sha }} .
 
-    - name: Build Docker Image
-      run: |
-        docker build -t vuln-app:${{ github.sha }} .
+      - name: Download Wiz CLI
+        run: curl -o wizcli https://downloads.wiz.io/v1/wizcli/latest/wizcli-linux-amd64 && chmod +x wizcli
 
-    - name: Scan Dependencies
-      uses: snyk/actions/python@master
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      - name: Wiz Scan Container Image (Block on Policy Failure, Apply Ignore Rule)
+        env:
+          WIZ_CLIENT_ID: ${{ secrets.WIZ_CLIENT_ID }}
+          WIZ_CLIENT_SECRET: ${{ secrets.WIZ_CLIENT_SECRET }}
+        run: |
+          ./wizcli scan container-image vuln-app:${{ github.sha }} \
+            --policies "meg-ci-policy" \
+            --ignore-rules "meg-epss-ignore"
